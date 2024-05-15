@@ -1,0 +1,4 @@
+*[${ENVIRONMENT}] Deployed ${SERVICE_NAME}*
+*Created by:* ${GIT_AUTHOR}
+```${GIT_COMMITS}```
+<${GIT_REPO}/commit/${GIT_REVISION}|View changes>

@@ -1,0 +1,50 @@
+name: Build new base agent image
+
+on:
+  push:
+    branches:
+      - "master"
+    paths:
+      - agents/base/Dockerfile
+      - .github/workflows/build_jenkins_agent_image.yml
+  workflow_dispatch:
+
+env:
+  DOCKER_REPO: 533040818513.dkr.ecr.us-west-2.amazonaws.com
+  AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+  AWS_SECRET_KEY: ${{ secrets.AWS_SECRET_KEY }}
+  AWS_REGION: "us-west-2"
+
+permissions:
+  contents: read
+  id-token: write
+  pull-requests: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 3
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ env.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ env.AWS_SECRET_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and Push the Base Jenkins Agent Docker image
+        env:
+          DOCKER_IMAGE: "${{ env.DOCKER_REPO }}/jenkins-agent"
+          DOCKER_TAG: base-latest
+        run: |
+          docker build -f agents/base/Dockerfile -t $DOCKER_IMAGE:$DOCKER_TAG .
+          docker push $DOCKER_IMAGE:$DOCKER_TAG

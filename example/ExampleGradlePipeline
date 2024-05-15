@@ -1,0 +1,72 @@
+/**
+ * Example pipeline to build with gradle
+ * For full working pipeline, see service-bot
+ */
+
+@Library('spartan') _
+
+import io.spartan.jenkinslib.clusters.Cluster
+import io.spartan.jenkinslib.helpers.GCloudHelper
+import io.spartan.jenkinslib.helpers.YamlHelper
+
+gradleBuildPipeline {
+    serviceConfigurations = [
+            name              : 'example-service-name',
+            dockerRepoBaseName: '<account-id>.dkr.ecr.us-west-2.amazonaws.com/spartan',
+            deploymentName    : 'example-service-name-deployment',
+            helmRepo          : 'spartan',
+            chartPath         : 'spartan/spartan',
+            chartVersion      : '1.0.3',
+            // the value of the map is the credentials key on Jenkins, the lib will try to search the full name `$name-$value-$environment`
+            // the envs will be replaced to the helm values files
+            credentialsToEnvs : [
+                    'ENV_1'               : "credential-1",
+                    // you can set the same credentials key to different env
+                    'ENV_FROM_SAME_CRED_1': "credentials-2",
+                    'ENV_FROM_SAME_CRED_2': "credentials-2"
+            ],
+            clusterNamePrefix : 'spartan-eks'
+    ]
+
+    gradleBuildCommands = ['assemble --parallel', 'shadowJar']
+    gradleBuildParams = []
+    // applied to all gradle build commands, if it not set, when the devDeploymentEnabled or prodDeploymentEnabled is true, it will automatically attach [-x check]
+
+    qualityStageEnabled = true // skip code quality
+
+    // delete 3 settings below to use the default logic, see vars/buildPipeline.groovy
+    buildEnabled = true
+    devDeploymentEnabled = true
+    prodDeploymentEnabled = false
+
+    // cloud config
+    cloudName = "aws"
+    cloudRegion = "us-west-2"
+
+    // add more envs that need custom logic to build
+    // the below code is copied from service-bot
+    helmAdditionalDeployVars = { ctx, buildEnv ->
+        def gcloudHelper = buildEnv.getHelperForClass GCloudHelper
+        def clusterEndpoint = gcloudHelper.container("clusters describe ${ctx.env.'GCLOUD_K8S_CLUSTER'}", ["--zone ${ctx.env.'GCLOUD_REGION'}", "--format='value(endpoint)'"])
+        def clusterCaCertificate = gcloudHelper.container("clusters describe ${ctx.env.'GCLOUD_K8S_CLUSTER'}", ["--zone ${ctx.env.'GCLOUD_REGION'}", "--format='value(masterAuth.clusterCaCertificate)'"])
+
+        def clusterInfos = [
+                "CLUSTER_NAME=${Cluster.GCLOUD_K8S_CLUSTER}-${buildEnv.environment}",
+                "CLUSTER_ENDPOINT=$clusterEndpoint",
+                "CLUSTER_CA_CERTIFICATE=$clusterCaCertificate",
+        ]
+        def yamlHelper = buildEnv.getHelperForClass YamlHelper
+        yamlHelper.writeYamlWithVariable('k8s/kubeconfig.yaml', clusterInfos)
+
+        [
+                "ALLOWED_SLACK_CHANNEL=${buildEnv.getJobConfig('devDeploymentEnabled', Boolean) ? 'prj-spartan-bot-dev' : buildEnv.getJobConfig('prodDeploymentEnabled', Boolean) ? 'prj-spartan-bot' : ''}",
+                "KUBE_CONFIG=${ctx.readFile('k8s/kubeconfig.yaml').bytes.encodeBase64().toString()}"
+        ]
+    }
+
+    // delete it to use the default logic, see var/buildPipeline.groovy
+    helmValuesPath = 'k8s/dev/values.yaml'
+
+    // add more values file that also needs to be replaced. e.g: values-prod.yaml, values-custom.yaml, ...
+    helmAdditionalFilePaths = ['']
+}
